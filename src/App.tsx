@@ -1,12 +1,15 @@
-import { useEffect, useState } from 'react';
-import { DataTable } from 'primereact/datatable';
+import { useEffect, useRef, useState } from 'react';
+import { DataTable, type DataTableStateEvent } from 'primereact/datatable';
 import { Column } from 'primereact/column';
-import { InputNumber } from 'primereact/inputnumber';
 import { Button } from 'primereact/button';
+import { OverlayPanel } from 'primereact/overlaypanel';
+import { InputNumber } from 'primereact/inputnumber';
+import { FaSlidersH } from 'react-icons/fa';
+
 import 'primereact/resources/themes/lara-light-indigo/theme.css';
 import 'primereact/resources/primereact.min.css';
 import 'primeicons/primeicons.css';
-import axios from 'axios';
+import './App.css';
 
 interface Artwork {
   id: number;
@@ -20,115 +23,124 @@ interface Artwork {
 
 function App() {
   const [artworks, setArtworks] = useState<Artwork[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [selectedArtworks, setSelectedArtworks] = useState<Artwork[]>([]);
   const [page, setPage] = useState(0);
+  const [rows, setRows] = useState(12);
   const [totalRecords, setTotalRecords] = useState(0);
-  const [selectedRows, setSelectedRows] = useState<Artwork[]>([]);
-  const [selectionMap, setSelectionMap] = useState<Map<number, Artwork>>(new Map());
-  const [selectCount, setSelectCount] = useState<number>(0);
+  const [loading, setLoading] = useState(false);
 
-  const rowsPerPage = 12;
+  const [rowInput, setRowInput] = useState<number>(0);
+  const op = useRef<OverlayPanel>(null);
 
-  const fetchArtworks = async (pageNumber: number) => {
+  const fetchArtworks = async () => {
     setLoading(true);
-    const res = await axios.get(`https://api.artic.edu/api/v1/artworks?page=${pageNumber}`);
-    setArtworks(res.data.data);
-    setTotalRecords(res.data.pagination.total);
+    const response = await fetch(
+      `https://api.artic.edu/api/v1/artworks?page=${page + 1}&limit=${rows}`
+    );
+    const data = await response.json();
+    setArtworks(data.data);
+    setTotalRecords(data.pagination.total);
     setLoading(false);
   };
 
   useEffect(() => {
-    fetchArtworks(page + 1);
-  }, [page]);
+    fetchArtworks();
+  }, [page, rows]);
 
-  const onPage = (e: { page: number }) => {
-    setPage(e.page);
+  const onPage = (e: DataTableStateEvent) => {
+    setPage(e.page ?? 0);
+    setRows(e.rows ?? 10);
   };
 
-  const onSelectionChange = (e: { value: Artwork[] }) => {
-    const newMap = new Map(selectionMap);
-    const currentPageSelected: Artwork[] = e.value;
+const handleSelectRows = async () => {
+  const selected: Artwork[] = [];
+  let needed = rowInput;
+  let tempPage = 0;
 
-    currentPageSelected.forEach(row => newMap.set(row.id, row));
-    artworks.forEach(row => {
-      if (!currentPageSelected.find(r => r.id === row.id)) {
-        newMap.delete(row.id);
-      }
-    });
+  const combinedArtworks: Artwork[] = [];
 
-    setSelectionMap(newMap);
-    setSelectedRows(Array.from(newMap.values()));
-  };
+  while (needed > 0) {
+    const response = await fetch(
+      `https://api.artic.edu/api/v1/artworks?page=${tempPage + 1}&limit=${rows}`
+    );
+    const data = await response.json();
+    const batch: Artwork[] = data.data;
 
-  const handleAutoSelect = async (count: number) => {
-    const newMap = new Map(selectionMap);
-    let needed = count;
-    let tempPage = 1;
+    combinedArtworks.push(...batch);
 
-    while (needed > 0) {
-      const res = await axios.get(`https://api.artic.edu/api/v1/artworks?page=${tempPage}`);
-      const data: Artwork[] = res.data.data;
-
-      for (let i = 0; i < data.length && needed > 0; i++) {
-        const row = data[i];
-        if (!newMap.has(row.id)) {
-          newMap.set(row.id, row);
-          needed--;
-        }
-      }
-
-      tempPage++;
+    for (let i = 0; i < batch.length && needed > 0; i++) {
+      selected.push(batch[i]);
+      needed--;
     }
 
-    setSelectionMap(newMap);
-    setSelectedRows(Array.from(newMap.values()));
-  };
+    if (batch.length < rows) break;
+    tempPage++;
+  }
+
+  setArtworks(combinedArtworks); // show all selected rows
+  setSelectedArtworks(selected); // select them
+  op.current?.hide();
+};
+
+
+
+  const titleHeader = () => (
+    <div className="flex items-center gap-2">
+      <FaSlidersH
+        className="cursor-pointer text-sm"
+        onClick={(e) => op.current?.toggle(e)}
+      />
+      Title
+      
+      <OverlayPanel ref={op}>
+        <div className="flex flex-col gap-2 p-2">
+          <InputNumber
+            value={rowInput}
+            onValueChange={(e) => setRowInput(e.value ?? 0)}
+            placeholder="Rows to select"
+          />
+          <Button label="Select" onClick={handleSelectRows} />
+        </div>
+      </OverlayPanel>
+    </div>
+  );
+
+  const footer = (
+    <div className="flex justify-end">
+      <Button
+        label="Clear Selection"
+        icon="pi pi-times"
+        onClick={() => setSelectedArtworks([])}
+      />
+    </div>
+  );
 
   return (
-    <div className="p-4">
-      <h2 className="mb-3">Artworks Table</h2>
-
-      <div className="flex items-center gap-3 mb-3">
-        <i className="pi pi-check-square text-xl" />
-        <InputNumber
-          value={selectCount}
-          onValueChange={(e) => setSelectCount(e.value ?? 0)}
-          placeholder="Select N rows"
-          min={1}
-        />
-        <Button label="Select Rows" onClick={() => handleAutoSelect(selectCount)} />
-      </div>
-
+    <div className="card">
       <DataTable
         value={artworks}
         paginator
-        rows={rowsPerPage}
-        first={page * rowsPerPage}
+        rows={rows}
+        first={page * rows}
         totalRecords={totalRecords}
         lazy
         loading={loading}
         onPage={onPage}
-        selection={artworks.filter(a => selectionMap.has(a.id))}
-        onSelectionChange={onSelectionChange}
+        selection={selectedArtworks}
+        onSelectionChange={(e) => setSelectedArtworks(e.value)}
         dataKey="id"
+        selectionMode="multiple"
+        footer={footer}
+        tableStyle={{ minWidth: '50rem' }}
       >
-        <Column selectionMode="multiple" headerStyle={{ width: '3em' }} />
-        <Column field="title" header="Title" />
+        <Column selectionMode="multiple" headerStyle={{ width: '3rem' }} />
+        <Column field="title" header={titleHeader()} />
         <Column field="place_of_origin" header="Origin" />
         <Column field="artist_display" header="Artist" />
         <Column field="inscriptions" header="Inscriptions" />
-        <Column field="date_start" header="Start" />
-        <Column field="date_end" header="End" />
+        <Column field="date_start" header="Start Year" />
+        <Column field="date_end" header="End Year" />
       </DataTable>
-
-      <div className="mt-4">
-        <h3>Selected Artworks ({selectedRows.length})</h3>
-        <ul>
-          {selectedRows.map(row => (
-            <li key={row.id}>{row.title} - {row.artist_display}</li>
-          ))}
-        </ul>
-      </div>
     </div>
   );
 }

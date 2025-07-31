@@ -35,7 +35,7 @@ function App() {
   const fetchArtworks = async () => {
     setLoading(true);
     const response = await fetch(
-      `https://api.artic.edu/api/v1/artworks?page=${page + 1}&limit=${rows}`
+      `https://api.artic.edu/api/v1/artworks?page=${page + 1}`
     );
     const data = await response.json();
     setArtworks(data.data);
